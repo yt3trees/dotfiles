@@ -1,0 +1,9 @@
+export LC_ALL=en_US.UTF-8
+
+bind status P !git push origin
+bind status p !git pull origin
+
+# vimdiffで確認をする
+bind diff		D >git difftool --trust-exit-code --no-prompt %(commit)^! -- %(file)
+# 未コミットファイルをリモートリポジトリの最新と比較
+bind generic	D >git difftool --trust-exit-code --no-prompt origin/HEAD -- %(file) -y
