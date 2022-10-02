@@ -10,6 +10,7 @@ try
     Install-Module -Name PSReadLine -AllowPrerelease -Scope CurrentUser -Force -SkipPublisherCheck
     Install-module -name Az.Accounts -AllowClobber
     Install-Module -Name Az.Tools.Predictor
+    Install-Module -Name CompletionPredictor
 }
 
 # Tig
