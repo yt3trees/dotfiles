@@ -3,7 +3,7 @@ try
 {
     Set-PSReadLineOption -PredictionSource HistoryAndPlugin
     Set-PSReadLineOption -PredictionViewStyle ListView
-    Enable-AzPredictor -AllSession
+#    Enable-AzPredictor -AllSession
 } catch
 {
     Write-Warning "PSReadLine not installed."
