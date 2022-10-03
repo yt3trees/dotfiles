@@ -4,12 +4,16 @@ Get-ChildItem "${psdir}\*.ps1" | %{.$_}
 # Auto Completion
 try
 {
-    Set-PSReadLineOption -PredictionSource History
+    Set-PSReadLineOption -PredictionSource HistoryAndPlugin
     Set-PSReadLineOption -PredictionViewStyle ListView
+#    Enable-AzPredictor -AllSession
 } catch
 {
     Write-Warning "PSReadLine not installed."
     Install-Module -Name PSReadLine -AllowPrerelease -Scope CurrentUser -Force -SkipPublisherCheck
+    Install-module -name Az.Accounts -AllowClobber
+    Install-Module -Name Az.Tools.Predictor
+    Install-Module -Name CompletionPredictor
 }
 
 # Tig
