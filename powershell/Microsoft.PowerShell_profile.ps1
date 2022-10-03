@@ -1,3 +1,6 @@
+$psdir = "$HOME\\Documents\Powershell\autoload"
+Get-ChildItem "${psdir}\*.ps1" | %{.$_}
+
 # Auto Completion
 try
 {
