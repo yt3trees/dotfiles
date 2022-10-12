@@ -5,44 +5,18 @@
 "==================================================
 " 行番号を表示
 set number
-" マウスを有効化
-set mouse=a
-" プログラミング言語に合わせて適切にインデントを自動挿入
-set smartindent
-" 各コマンドやsmartindentで挿入する空白の量
-set shiftwidth=4
-" Tabキーで挿入するスペースの数
-set softtabstop=4
-" 画面を縦分割する際に右に開く
-set splitright
-" 画面を水平分割する際に下に開く
-set splitbelow
 " yank した文字列をクリップボードにコピー
 set clipboard=unnamed
 " カーソルのある行をハイライトする
 set cursorline
-" 検索した文字をハイライトする
-" set hls
 " 検索時に大文字小文字を無視する
 set ignorecase 
 " 検索時に大文字を含んでいる場合は大文字小文字を区別する
 set smartcase
-" カレントディレクトリを自動で移動
-set autochdir
 " 行を折り返さない
 set nowrap
-" バッファ内で扱う文字コード(文字列)
-set encoding=utf-8
-" 読み込む文字コード(文字列のリスト) :UTF-8を試し、だめならShift_JIS
-set fileencodings=utf-8,utf-16le,sjis,cp932
 " windowの20%をscrolloffに設定
 set scrolloff=10
-" フォントを設定
-set guifont=Iosevka\ Custom\ RD:h11
-" ターミナルでも True Color を使えるようにする
-set termguicolors
-" ポップアップメニューを半透明化
-set pumblend=30
 " 行番号を相対表示
 set relativenumber
 
