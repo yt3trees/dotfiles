@@ -1,11 +1,11 @@
 [Windows | Oh My Posh](https://ohmyposh.dev/docs/installation/windows#install)
 
-```powershell:powershell
+```powershell
 scoop install https://github.com/JanDeDobbeleer/oh-my-posh/releases/latest/download/oh-my-posh.json
 ```
 
 テーマを変更する場合はPowershellの$Profileに以下を追記
-```powershell:$Profile
+```powershell
 # mytheme.omp.jsonが存在しない場合はtokyo.omp.jsonをセットする
 if (Test-Path -Path "~/.mytheme.omp.json")
 {
