@@ -1,0 +1,55 @@
+{
+  "ui": {
+    "showLineNumbers": false,
+    "theme": "GitHub"
+  },
+  "ide": {
+    "enabled": true
+  },
+  "mcpServers": {},
+  "general": {
+    "preferredEditor": "vscode",
+    "previewFeatures": true
+  },
+  "security": {
+    "auth": {
+      "selectedType": "oauth-personal"
+    }
+  },
+  "experimental": {
+    "skills": true
+  },
+  "hooksConfig": {
+    "enabled": true,
+    "notifications": true
+  },
+  "hooks": {
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "name": "toast-notification",
+            "type": "command",
+            "command": "powershell.exe -ExecutionPolicy Bypass -File \"$env:USERPROFILE\\.gemini\\hooks\\cc-toast.ps1\" -Event Notification -SilentWhenFocused",
+            "timeout": 10000,
+            "description": "Windows Toast通知を表示(Notification)"
+          }
+        ]
+      }
+    ],
+    "AfterAgent": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "toast-afteragent",
+            "type": "command",
+            "command": "powershell.exe -ExecutionPolicy Bypass -File \"$env:USERPROFILE\\.gemini\\hooks\\cc-toast.ps1\" -Event AfterAgent -SilentWhenFocused",
+            "timeout": 10000,
+            "description": "Windows Toast通知を表示(タスク完了)"
+          }
+        ]
+      }
+    ]
+  }
+}
