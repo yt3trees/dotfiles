@@ -1,0 +1,33 @@
+{
+  "model": "sonnet",
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -ExecutionPolicy Bypass -File \"%USERPROFILE%\\.claude\\hooks\\cc-toast.ps1\" -Event Notification -SilentWhenFocused"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -ExecutionPolicy Bypass -File \"%USERPROFILE%\\.claude\\hooks\\cc-toast.ps1\" -Event Stop -SilentWhenFocused"
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "npx -y ccusage statusline",
+    "padding": 0
+  },
+  "language": "Japanese"
+}
