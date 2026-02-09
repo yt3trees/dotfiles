@@ -1,5 +1,8 @@
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+# UTF-8 エンコーディング設定(BOMなし)
+chcp 65001 | Out-Null
 $OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::InputEncoding = [System.Text.Encoding]::UTF8
 
 # ==========================================
 # 0. ANSI カラー定義
@@ -113,39 +116,58 @@ $ctxEmpty = ([char]0x2591).ToString() * (10 - $ctxBarCount)
 $contextBar = "$ctxColor$ctxFilled$GRAY$ctxEmpty$RESET"
 
 # ==========================================
-# 3. ccusage データ取得 (キャッシュ処理)
+# 3. ccusage データ取得 (改善版)
 # ==========================================
 $ccData = $null
 $cacheFile = Join-Path $env:TEMP "claude_ccusage_cache.json"
-$cacheDurationMinutes = 5
+$cacheDurationMinutes = 3
 
+# キャッシュから読み込み
 if (Test-Path $cacheFile) {
     try {
         $rawContent = Get-Content $cacheFile -Raw -Encoding UTF8
-        if (-not [string]::IsNullOrWhiteSpace($rawContent)) { $ccData = $rawContent | ConvertFrom-Json }
-    } catch {}
+        if (-not [string]::IsNullOrWhiteSpace($rawContent)) { 
+            $ccData = $rawContent | ConvertFrom-Json 
+        }
+    } catch {
+        # キャッシュが壊れている場合は削除
+        Remove-Item $cacheFile -ErrorAction SilentlyContinue
+    }
 }
 
+# キャッシュ更新判定
 $shouldUpdate = $true
-if ($ccData) {
+if ($ccData -and (Test-Path $cacheFile)) {
     $lastWrite = (Get-Item $cacheFile).LastWriteTime
-    if ((Get-Date) -lt $lastWrite.AddMinutes($cacheDurationMinutes)) { $shouldUpdate = $false }
+    if ((Get-Date) -lt $lastWrite.AddMinutes($cacheDurationMinutes)) { 
+        $shouldUpdate = $false 
+    }
 }
 
+# ccusageから新しいデータを取得
 if ($shouldUpdate) {
     if (Get-Command "npx" -ErrorAction SilentlyContinue) {
-        $cmd = "npx --yes ccusage@latest blocks --active --json"
         try {
-            $rawOutput = Invoke-Expression $cmd 2>$null
-            if ($rawOutput -match "(\{.*`"blocks`".*\})") {
+            # 出力を直接キャプチャ
+            $rawOutput = & npx --yes ccusage@latest blocks --active --json 2>&1
+            
+            # 文字列として結合
+            $outputStr = $rawOutput -join "`n"
+            
+            # JSONを抽出（最初の{から最後の}まで）
+            if ($outputStr -match '(\{[\s\S]*"blocks"[\s\S]*\})') {
                 $jsonPart = $matches[1]
                 $newData = $jsonPart | ConvertFrom-Json
-                if ($newData -and $newData.blocks) {
-                    Set-Content -Path $cacheFile -Value $jsonPart -Encoding UTF8
+                
+                # データが有効ならキャッシュに保存
+                if ($newData -and $newData.blocks -and $newData.blocks.Count -gt 0) {
+                    $jsonPart | Set-Content -Path $cacheFile -Encoding UTF8
                     $ccData = $newData
                 }
             }
-        } catch {}
+        } catch {
+            # エラー時はキャッシュを維持（削除しない）
+        }
     }
 }
 
@@ -157,32 +179,42 @@ $costInfo = ""
 $foundResetTime = $false
 
 if ($ccData -and $ccData.blocks) {
+    # アクティブなブロックを優先、なければ最初のブロック
     $block = $ccData.blocks | Where-Object { $_.isActive -eq $true } | Select-Object -First 1
     if (-not $block) { $block = $ccData.blocks | Select-Object -First 1 }
 
-    if ($block -and $block.endTime) {
-        try {
-            # リセット時間
-            $endTimeStrRaw = $block.endTime
-            $endTime = [DateTime]::Parse($endTimeStrRaw)
-            if ($endTime.Kind -ne 'Local') { $endTime = $endTime.ToLocalTime() }
+    if ($block) {
+        # リセット時間の処理
+        if ($block.endTime) {
+            try {
+                $endTimeStrRaw = $block.endTime
+                $endTime = [DateTime]::Parse($endTimeStrRaw)
+                if ($endTime.Kind -ne 'Local') { $endTime = $endTime.ToLocalTime() }
 
-            $now = Get-Date
-            $diff = $endTime - $now
-            $endTimeDisp = $endTime.ToString("HH:mm")
+                $now = Get-Date
+                $diff = $endTime - $now
+                $endTimeDisp = $endTime.ToString("HH:mm")
 
-            $timeIcon = $nfCheck
-            $timeText = "$endTimeDisp$RESET"
-            if ($diff.TotalSeconds -gt 0) {
-                $h = [math]::Floor($diff.TotalHours)
-                $m = $diff.Minutes
-                $timeIcon = $nfHourglass
-                $timeText = "${ColPlan}${h}h ${m}m$RESET ($endTimeDisp)"
+                $timeIcon = $nfCheck
+                $timeText = "$endTimeDisp$RESET"
+                
+                if ($diff.TotalSeconds -gt 0) {
+                    $h = [math]::Floor($diff.TotalHours)
+                    $m = $diff.Minutes
+                    $timeIcon = $nfHourglass
+                    $timeText = "${ColPlan}${h}h ${m}m$RESET ($endTimeDisp)"
+                }
+                
+                $resetInfo = "$Sep$timeIcon$timeText"
+                $foundResetTime = $true
+            } catch {
+                # 時間のパースに失敗した場合は何もしない
             }
-            $resetInfo = "$Sep$timeIcon$timeText"
+        }
 
-            # コストバー
-            if ($block.costUSD) {
+        # コストバーの処理
+        if ($block.costUSD) {
+            try {
                 $cost = [double]$block.costUSD
                 $costDisp = [math]::Round($cost, 2)
                 $costPct = ($cost / $costLimit) * 100
@@ -202,27 +234,20 @@ if ($ccData -and $ccData.blocks) {
                 elseif ($costPct -ge 80) { $warn = " $YELLOW*$RESET" }
 
                 $costInfo = "$Sep$cColor$cFilled$GRAY$cEmpty$RESET ${ColMoneyText}`$$costDisp$RESET$warn"
+            } catch {
+                # コストの計算に失敗した場合は何もしない
             }
-            $foundResetTime = $true
-        } catch {}
+        }
     }
 }
 
-# フォールバック
+# フォールバック: ccusageからデータが取得できなかった場合のみ
 if (-not $foundResetTime) {
     if ($percentage -eq 0) {
         $resetInfo = "$Sep${GREEN}New Session$RESET"
-    } elseif ($transcriptPath -and (Test-Path $transcriptPath)) {
-        $fileCreated = (Get-Item $transcriptPath).CreationTime
-        $resetTime = $fileCreated.AddHours(5)
-        $remaining = $resetTime - (Get-Date)
-        if ($remaining.TotalSeconds -gt 0) {
-            $h = [math]::Floor($remaining.TotalHours)
-            $m = $remaining.Minutes
-            $resetInfo = "$Sep$nfClock ${ColPlan}${h}h${m}m$RESET (Est)"
-        } else {
-            $resetInfo = "$Sep$nfCheck ${GREEN}Available$RESET"
-        }
+    } else {
+        # ccusageが利用できない旨を表示
+        $resetInfo = "$Sep${GRAY}ccusage N/A$RESET"
     }
 }
 
@@ -233,7 +258,6 @@ $lowTokenWarning = ""
 if ($percentage -ge 80) { $lowTokenWarning = "$Sep$RED$nfWarn Low tokens$RESET" }
 
 # Line 1: モデル | プラン | バー | % (k) | コスト | リセット
-# ★修正: (${usedK}k) を追加
 $line1 = "$ColModel$modelName$RESET$planDisplay$Sep$contextBar $GRAY${percentage}% (${usedK}k)$RESET$costInfo$resetInfo$lowTokenWarning"
 
 # Line 2: パス Git
