@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell.exe -ExecutionPolicy Bypass -File \"%USERPROFILE%\\.claude\\hooks\\cc-toast.ps1\" -Event Notification -SilentWhenFocused"
+            "command": "powershell.exe -ExecutionPolicy Bypass -File $HOME/.claude/hooks/cc-toast.ps1 -Event Notification -SilentWhenFocused"
           }
         ]
       }
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell.exe -ExecutionPolicy Bypass -File \"%USERPROFILE%\\.claude\\hooks\\cc-toast.ps1\" -Event Stop -SilentWhenFocused"
+            "command": "powershell.exe -ExecutionPolicy Bypass -File $HOME/.claude/hooks/cc-toast.ps1 -Event Stop -SilentWhenFocused"
           }
         ]
       }
@@ -26,8 +26,7 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "powershell.exe -ExecutionPolicy Bypass -File \"%USERPROFILE%\\.claude\\statusline.ps1\"",
-    "padding": 0
+    "command": "powershell.exe -ExecutionPolicy Bypass -File $HOME/.claude/statusline.ps1"
   },
   "language": "Japanese"
 }
