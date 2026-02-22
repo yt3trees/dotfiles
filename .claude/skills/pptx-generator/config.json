@@ -1,0 +1,30 @@
+{
+  "output": {
+    "dir": "output"
+  },
+  "font": {
+    "family": "Meiryo UI"
+  },
+  "palette": {
+    "primary": "#1E3A5F",
+    "secondary": "#4A6FA5",
+    "accent": "#3AA899",
+    "gray": "#999999",
+    "text": {
+      "primary": "#333333",
+      "secondary": "#666666",
+      "light": "#FFFFFF"
+    },
+    "background": {
+      "primary": "#FFFFFF",
+      "secondary": "#F5F5F5",
+      "dark": "#1E3A5F"
+    },
+    "chart": {
+      "line_color_3": "#EDB120"
+    }
+  },
+  "template": {
+    "pptx_path": "assets/template.pptx"
+  }
+}
