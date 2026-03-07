@@ -110,8 +110,8 @@ if ($percentage -ge 80) { $ctxColor = $RED }
 elseif ($percentage -ge 50) { $ctxColor = $YELLOW }
 
 $ctxBarCount = [math]::Min([math]::Floor($percentage / 10), 10)
-$ctxFilled = ([char]0x2588).ToString() * $ctxBarCount
-$ctxEmpty = ([char]0x2591).ToString() * (10 - $ctxBarCount)
+$ctxFilled = ([char]0x25B0).ToString() * $ctxBarCount
+$ctxEmpty = ([char]0x25B1).ToString() * (10 - $ctxBarCount)
 
 $contextBar = "$ctxColor$ctxFilled$GRAY$ctxEmpty$RESET"
 
@@ -252,13 +252,93 @@ if (-not $foundResetTime) {
 }
 
 # ==========================================
+# 4.5. 5h レート制限 (APIヘッダー, キャッシュ360秒)
+# ==========================================
+$rlCacheFile = Join-Path $env:TEMP "claude_rl_5h_cache.json"
+$rlCacheTTL  = 360
+$rlData      = $null
+$rlShouldFetch = $true
+
+if (Test-Path $rlCacheFile) {
+    try {
+        $rlData = Get-Content $rlCacheFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($rlData -and $rlData.five_hour_util) {
+            $rlAge = ((Get-Date) - (Get-Item $rlCacheFile).LastWriteTime).TotalSeconds
+            if ($rlAge -lt $rlCacheTTL) { $rlShouldFetch = $false }
+        }
+    } catch {}
+}
+
+if ($rlShouldFetch) {
+    $rlToken = $null
+    try {
+        if (Test-Path $credFile) {
+            $rlCred  = Get-Content $credFile -Raw | ConvertFrom-Json
+            $rlToken = $rlCred.claudeAiOauth.accessToken
+        }
+    } catch {}
+
+    if ($rlToken) {
+        try {
+            $rlBodyFile = Join-Path $env:TEMP "claude_rl_body.json"
+            [System.IO.File]::WriteAllText($rlBodyFile, '{"model":"claude-haiku-4-5-20251001","max_tokens":1,"messages":[{"role":"user","content":"h"}]}')
+            $rlRaw  = & curl.exe -sD- -o NUL --max-time 8 `
+                -H "Authorization: Bearer $rlToken" `
+                -H "Content-Type: application/json" `
+                -H "anthropic-beta: oauth-2025-04-20" `
+                -H "anthropic-version: 2023-06-01" `
+                --data-binary "@$rlBodyFile" `
+                "https://api.anthropic.com/v1/messages" 2>$null
+
+            $rlStr  = $rlRaw -join "`n"
+            $h5uM   = [regex]::Match($rlStr, '(?i)anthropic-ratelimit-unified-5h-utilization:\s*(\S+)')
+            $h5rM   = [regex]::Match($rlStr, '(?i)anthropic-ratelimit-unified-5h-reset:\s*(\S+)')
+            $h5u    = if ($h5uM.Success) { $h5uM.Groups[1].Value.Trim() } else { $null }
+            $h5r    = if ($h5rM.Success) { $h5rM.Groups[1].Value.Trim() } else { $null }
+
+            if ($h5u) {
+                @{ five_hour_util = $h5u; five_hour_reset = $h5r } |
+                    ConvertTo-Json | Set-Content $rlCacheFile -Encoding UTF8
+                $rlData = @{ five_hour_util = $h5u; five_hour_reset = $h5r }
+            }
+        } catch {}
+    }
+}
+
+# キャッシュ取得失敗時も古いキャッシュを使う
+if (-not $rlData -and (Test-Path $rlCacheFile)) {
+    try { $rlData = Get-Content $rlCacheFile -Raw -Encoding UTF8 | ConvertFrom-Json } catch {}
+}
+
+$fiveHourInline = ""
+if ($rlData -and $rlData.five_hour_util) {
+    try {
+        $f5Pct   = [int]([double]$rlData.five_hour_util * 100)
+        $f5Color = if ($f5Pct -ge 80) { $RED } elseif ($f5Pct -ge 50) { $YELLOW } else { $GREEN }
+
+        $f5Count  = [math]::Min([math]::Floor($f5Pct / 10), 10)
+        $f5Fill   = ([char]0x25B0).ToString() * $f5Count
+        $f5Empty  = ([char]0x25B1).ToString() * (10 - $f5Count)
+
+        $f5Reset = ""
+        if ($rlData.five_hour_reset) {
+            $epoch   = [long]$rlData.five_hour_reset
+            $resetDt = [DateTimeOffset]::FromUnixTimeSeconds($epoch).LocalDateTime
+            $f5Reset = " ${GRAY}Resets $($resetDt.ToString('HH:mm'))$RESET"
+        }
+
+        $fiveHourInline = "$Sep${f5Color}${f5Fill}${GRAY}${f5Empty}${RESET} ${f5Color}${f5Pct}%${RESET}${f5Reset}"
+    } catch {}
+}
+
+# ==========================================
 # 5. 出力
 # ==========================================
 $lowTokenWarning = ""
 if ($percentage -ge 80) { $lowTokenWarning = "$Sep$RED$nfWarn Low tokens$RESET" }
 
 # Line 1: モデル | プラン | バー | % (k) | コスト | リセット
-$line1 = "$ColModel$modelName$RESET$planDisplay$Sep$contextBar $GRAY${percentage}% (${usedK}k)$RESET$costInfo$resetInfo$lowTokenWarning"
+$line1 = "$ColModel$modelName$RESET$planDisplay$Sep$contextBar $GRAY${percentage}% (${usedK}k)$RESET$fiveHourInline$lowTokenWarning"
 
 # Line 2: パス Git
 $pathParts = $currentDir
