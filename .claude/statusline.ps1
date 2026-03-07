@@ -293,13 +293,17 @@ if ($rlShouldFetch) {
             $rlStr  = $rlRaw -join "`n"
             $h5uM   = [regex]::Match($rlStr, '(?i)anthropic-ratelimit-unified-5h-utilization:\s*(\S+)')
             $h5rM   = [regex]::Match($rlStr, '(?i)anthropic-ratelimit-unified-5h-reset:\s*(\S+)')
+            $h7uM   = [regex]::Match($rlStr, '(?i)anthropic-ratelimit-unified-7d-utilization:\s*(\S+)')
+            $h7rM   = [regex]::Match($rlStr, '(?i)anthropic-ratelimit-unified-7d-reset:\s*(\S+)')
             $h5u    = if ($h5uM.Success) { $h5uM.Groups[1].Value.Trim() } else { $null }
             $h5r    = if ($h5rM.Success) { $h5rM.Groups[1].Value.Trim() } else { $null }
+            $h7u    = if ($h7uM.Success) { $h7uM.Groups[1].Value.Trim() } else { $null }
+            $h7r    = if ($h7rM.Success) { $h7rM.Groups[1].Value.Trim() } else { $null }
 
             if ($h5u) {
-                @{ five_hour_util = $h5u; five_hour_reset = $h5r } |
+                @{ five_hour_util = $h5u; five_hour_reset = $h5r; seven_day_util = $h7u; seven_day_reset = $h7r } |
                     ConvertTo-Json | Set-Content $rlCacheFile -Encoding UTF8
-                $rlData = @{ five_hour_util = $h5u; five_hour_reset = $h5r }
+                $rlData = @{ five_hour_util = $h5u; five_hour_reset = $h5r; seven_day_util = $h7u; seven_day_reset = $h7r }
             }
         } catch {}
     }
@@ -327,7 +331,28 @@ if ($rlData -and $rlData.five_hour_util) {
             $f5Reset = " ${GRAY}Resets $($resetDt.ToString('HH:mm'))$RESET"
         }
 
-        $fiveHourInline = "$Sep${f5Color}${f5Fill}${GRAY}${f5Empty}${RESET} ${f5Color}${f5Pct}%${RESET}${f5Reset}"
+        $fiveLine = "${GRAY}[5h]${RESET} ${f5Color}${f5Fill}${GRAY}${f5Empty}${RESET} ${f5Color}${f5Pct}%${RESET}${f5Reset}"
+    } catch {}
+}
+
+$sevenDayLine = ""
+if ($rlData -and $rlData.seven_day_util) {
+    try {
+        $f7Pct   = [int]([double]$rlData.seven_day_util * 100)
+        $f7Color = if ($f7Pct -ge 80) { $RED } elseif ($f7Pct -ge 50) { $YELLOW } else { $GREEN }
+
+        $f7Count  = [math]::Min([math]::Floor($f7Pct / 10), 10)
+        $f7Fill   = ([char]0x25B0).ToString() * $f7Count
+        $f7Empty  = ([char]0x25B1).ToString() * (10 - $f7Count)
+
+        $f7Reset = ""
+        if ($rlData.seven_day_reset) {
+            $epoch   = [long]$rlData.seven_day_reset
+            $resetDt = [DateTimeOffset]::FromUnixTimeSeconds($epoch).LocalDateTime
+            $f7Reset = " ${GRAY}Resets $($resetDt.ToString('M/d HH:mm'))$RESET"
+        }
+
+        $sevenDayLine = "${GRAY}[7d]${RESET} ${f7Color}${f7Fill}${GRAY}${f7Empty}${RESET} ${f7Color}${f7Pct}%${RESET}${f7Reset}"
     } catch {}
 }
 
@@ -337,32 +362,18 @@ if ($rlData -and $rlData.five_hour_util) {
 $lowTokenWarning = ""
 if ($percentage -ge 80) { $lowTokenWarning = "$Sep$RED$nfWarn Low tokens$RESET" }
 
-# Line 1: モデル | プラン | バー | % (k) | コスト | リセット
-$line1 = "$ColModel$modelName$RESET$planDisplay$Sep$contextBar $GRAY${percentage}% (${usedK}k)$RESET$fiveHourInline$lowTokenWarning"
-
-# Line 2: パス Git
-$pathParts = $currentDir
-if ($currentDir) {
-    $parts = $currentDir -split '[\\/]' | Where-Object { $_ -ne "" }
-    if ($parts.Count -gt 3) { $pathParts = "...\" + ($parts[-3..-1] -join '\') }
-}
-
+# Git情報 (Line 1 で使うため先に計算)
 $gitInfo = ""
 if ($currentDir -and (Test-Path $currentDir)) {
     try {
         Push-Location $currentDir
-        $isGitRepo = $false
         git rev-parse --git-dir 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) { $isGitRepo = $true }
-
-        if ($isGitRepo) {
+        if ($LASTEXITCODE -eq 0) {
             $branch = git rev-parse --abbrev-ref HEAD 2>$null
 
-            # --- Git Status ---
             $cntStaged    = 0
             $cntModified  = 0
             $cntUntracked = 0
-
             $statusLines = @(git status --porcelain 2>$null)
 
             foreach ($line in $statusLines) {
@@ -378,7 +389,6 @@ if ($currentDir -and (Test-Path $currentDir)) {
             if ($cntStaged -gt 0)    { $gitStats += " $ColStaged$symPlus$cntStaged$RESET" }
             if ($cntModified -gt 0)  { $gitStats += " $ColModified$symExclam$cntModified$RESET" }
             if ($cntUntracked -gt 0) { $gitStats += " $ColUntracked$symQuest$cntUntracked$RESET" }
-
             if ($gitStats -eq "" -and $statusLines.Count -gt 0) {
                 $gitStats = " $ColUntracked$symQuest$RESET"
             }
@@ -389,7 +399,11 @@ if ($currentDir -and (Test-Path $currentDir)) {
     } catch {}
 }
 
-$line2 = "$ColPathText$pathParts$RESET$gitInfo"
+# Line 1: フォルダ名 | モデル | プラン | コンテキストバー | Git
+$folderName = if ($currentDir) { Split-Path $currentDir -Leaf } else { "" }
+$folderDisplay = if ($folderName) { "${folderName}${Sep}" } else { "" }
+$line1 = "${folderDisplay}${ColModel}${modelName}${RESET}${planDisplay}${Sep}${contextBar} ${GRAY}${percentage}% (${usedK}k)${RESET}${gitInfo}${lowTokenWarning}"
 
 Write-Host $line1
-Write-Host $line2
+if ($fiveLine) { Write-Host $fiveLine }
+if ($sevenDayLine) { Write-Host $sevenDayLine }
