@@ -28,5 +28,6 @@
     "type": "command",
     "command": "powershell.exe -ExecutionPolicy Bypass -File $HOME/.claude/statusline.ps1"
   },
-  "language": "Japanese"
+  "language": "Japanese",
+  "permissionMode": "auto"
 }
