@@ -29,5 +29,6 @@
     "command": "powershell.exe -ExecutionPolicy Bypass -File $HOME/.claude/statusline.ps1"
   },
   "language": "Japanese",
-  "permissionMode": "auto"
+  "permissionMode": "auto",
+  "cleanupPeriodDays": 90
 }
