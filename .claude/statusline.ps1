@@ -313,7 +313,7 @@ if ($stdData.rate_limits) {
 }
 
 $fiveHourInline = ""
-if ($rlData -and $rlData.five_hour_util) {
+if ($rlData -and $rlData.five_hour_util -ne $null) {
     try {
         $f5Pct   = [int]([double]$rlData.five_hour_util * 100)
         $f5Color = Get-Gradient -Pct $f5Pct
@@ -332,7 +332,7 @@ if ($rlData -and $rlData.five_hour_util) {
 }
 
 $sevenDayLine = ""
-if ($rlData -and $rlData.seven_day_util) {
+if ($rlData -and $rlData.seven_day_util -ne $null) {
     try {
         $f7Pct   = [int]([double]$rlData.seven_day_util * 100)
         $f7Color = Get-Gradient -Pct $f7Pct
