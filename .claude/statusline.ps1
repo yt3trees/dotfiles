@@ -104,16 +104,62 @@ $percentage = if ($null -ne $stdData.context_window.used_percentage) { [int]$std
 $totalUsed = [math]::Round($contextSize * $percentage / 100)
 $usedK = [math]::Round($totalUsed / 1000, 1)
 
+# グラデーションカラー (Pythonのgradient()に合わせたRGB)
+function Get-Gradient {
+    param([double]$Pct)
+    if ($Pct -lt 50) {
+        $r = [int]($Pct * 5.1)
+        return "$e[38;2;${r};200;80m"
+    } else {
+        $g = [math]::Max([int](200 - ($Pct - 50) * 4), 0)
+        return "$e[38;2;255;${g};60m"
+    }
+}
+
+# 点字ドットバー生成関数 (Pattern 5: Braille Dots)
+# 8セル × 7段階、8セルごとにスペース1個
+function New-BrailleBar {
+    param(
+        [double]$Percentage,
+        [int]$Cells = 8,
+        [int]$GroupSize = 8
+    )
+    # 参考実装に合わせたセット: 下から対称充填
+    $brailleSteps = @(
+        ' ',           # ' ' 0/7 (半角スペース)
+        [char]0x28C0,  # ⣀ 1/7
+        [char]0x28C4,  # ⣄ 2/7
+        [char]0x28E4,  # ⣤ 3/7
+        [char]0x28E6,  # ⣦ 4/7
+        [char]0x28F6,  # ⣶ 5/7
+        [char]0x28F7,  # ⣷ 6/7
+        [char]0x28FF   # ⣿ 7/7
+    )
+
+    $level = [math]::Max(0.0, [math]::Min($Percentage / 100.0, 1.0))
+    $bar = ""
+    for ($i = 0; $i -lt $Cells; $i++) {
+        # グループ間にスペース
+        if ($i -gt 0 -and $i % $GroupSize -eq 0) { $bar += " " }
+
+        $segStart = $i / $Cells
+        $segEnd   = ($i + 1) / $Cells
+        if ($level -ge $segEnd) {
+            $bar += $brailleSteps[7]
+        } elseif ($level -le $segStart) {
+            $bar += $brailleSteps[0]
+        } else {
+            $frac = ($level - $segStart) / ($segEnd - $segStart)
+            $bar += $brailleSteps[[math]::Min([int]($frac * 7), 7)]
+        }
+    }
+    return $bar
+}
+
 # コンテキストバー
-$ctxColor = $GREEN
-if ($percentage -ge 80) { $ctxColor = $RED }
-elseif ($percentage -ge 50) { $ctxColor = $YELLOW }
-
-$ctxBarCount = [math]::Min([math]::Floor($percentage / 10), 10)
-$ctxFilled = ([char]0x25B0).ToString() * $ctxBarCount
-$ctxEmpty = ([char]0x25B1).ToString() * (10 - $ctxBarCount)
-
-$contextBar = "$ctxColor$ctxFilled$GRAY$ctxEmpty$RESET"
+$ctxColor = Get-Gradient -Pct $percentage
+$ctxBar = New-BrailleBar -Percentage $percentage -Cells 8
+$contextBar = "$ctxColor$ctxBar$RESET"
 
 # ==========================================
 # 3. ccusage データ取得 (改善版)
@@ -252,77 +298,27 @@ if (-not $foundResetTime) {
 }
 
 # ==========================================
-# 4.5. 5h レート制限 (APIヘッダー, キャッシュ360秒)
+# 4.5. レート制限 (stdinのrate_limitsから取得)
 # ==========================================
-$rlCacheFile = Join-Path $env:TEMP "claude_rl_5h_cache.json"
-$rlCacheTTL  = 360
-$rlData      = $null
-$rlShouldFetch = $true
-
-if (Test-Path $rlCacheFile) {
-    try {
-        $rlData = Get-Content $rlCacheFile -Raw -Encoding UTF8 | ConvertFrom-Json
-        if ($rlData -and $rlData.five_hour_util) {
-            $rlAge = ((Get-Date) - (Get-Item $rlCacheFile).LastWriteTime).TotalSeconds
-            if ($rlAge -lt $rlCacheTTL) { $rlShouldFetch = $false }
-        }
-    } catch {}
-}
-
-if ($rlShouldFetch) {
-    $rlToken = $null
-    try {
-        if (Test-Path $credFile) {
-            $rlCred  = Get-Content $credFile -Raw | ConvertFrom-Json
-            $rlToken = $rlCred.claudeAiOauth.accessToken
-        }
-    } catch {}
-
-    if ($rlToken) {
-        try {
-            $rlBodyFile = Join-Path $env:TEMP "claude_rl_body.json"
-            [System.IO.File]::WriteAllText($rlBodyFile, '{"model":"claude-haiku-4-5-20251001","max_tokens":1,"messages":[{"role":"user","content":"h"}]}')
-            $rlRaw  = & curl.exe -sD- -o NUL --max-time 8 `
-                -H "Authorization: Bearer $rlToken" `
-                -H "Content-Type: application/json" `
-                -H "anthropic-beta: oauth-2025-04-20" `
-                -H "anthropic-version: 2023-06-01" `
-                --data-binary "@$rlBodyFile" `
-                "https://api.anthropic.com/v1/messages" 2>$null
-
-            $rlStr  = $rlRaw -join "`n"
-            $h5uM   = [regex]::Match($rlStr, '(?i)anthropic-ratelimit-unified-5h-utilization:\s*(\S+)')
-            $h5rM   = [regex]::Match($rlStr, '(?i)anthropic-ratelimit-unified-5h-reset:\s*(\S+)')
-            $h7uM   = [regex]::Match($rlStr, '(?i)anthropic-ratelimit-unified-7d-utilization:\s*(\S+)')
-            $h7rM   = [regex]::Match($rlStr, '(?i)anthropic-ratelimit-unified-7d-reset:\s*(\S+)')
-            $h5u    = if ($h5uM.Success) { $h5uM.Groups[1].Value.Trim() } else { $null }
-            $h5r    = if ($h5rM.Success) { $h5rM.Groups[1].Value.Trim() } else { $null }
-            $h7u    = if ($h7uM.Success) { $h7uM.Groups[1].Value.Trim() } else { $null }
-            $h7r    = if ($h7rM.Success) { $h7rM.Groups[1].Value.Trim() } else { $null }
-
-            if ($h5u) {
-                @{ five_hour_util = $h5u; five_hour_reset = $h5r; seven_day_util = $h7u; seven_day_reset = $h7r } |
-                    ConvertTo-Json | Set-Content $rlCacheFile -Encoding UTF8
-                $rlData = @{ five_hour_util = $h5u; five_hour_reset = $h5r; seven_day_util = $h7u; seven_day_reset = $h7r }
-            }
-        } catch {}
+$rlData = $null
+if ($stdData.rate_limits) {
+    $fh = $stdData.rate_limits.five_hour
+    $sd = $stdData.rate_limits.seven_day
+    $rlData = @{
+        five_hour_util  = if ($fh -and $fh.used_percentage -ne $null) { [double]$fh.used_percentage / 100.0 } else { $null }
+        five_hour_reset = if ($fh) { $fh.resets_at } else { $null }
+        seven_day_util  = if ($sd -and $sd.used_percentage -ne $null) { [double]$sd.used_percentage / 100.0 } else { $null }
+        seven_day_reset = if ($sd) { $sd.resets_at } else { $null }
     }
-}
-
-# キャッシュ取得失敗時も古いキャッシュを使う
-if (-not $rlData -and (Test-Path $rlCacheFile)) {
-    try { $rlData = Get-Content $rlCacheFile -Raw -Encoding UTF8 | ConvertFrom-Json } catch {}
 }
 
 $fiveHourInline = ""
 if ($rlData -and $rlData.five_hour_util) {
     try {
         $f5Pct   = [int]([double]$rlData.five_hour_util * 100)
-        $f5Color = if ($f5Pct -ge 80) { $RED } elseif ($f5Pct -ge 50) { $YELLOW } else { $GREEN }
+        $f5Color = Get-Gradient -Pct $f5Pct
 
-        $f5Count  = [math]::Min([math]::Floor($f5Pct / 10), 10)
-        $f5Fill   = ([char]0x25B0).ToString() * $f5Count
-        $f5Empty  = ([char]0x25B1).ToString() * (10 - $f5Count)
+        $f5Bar = New-BrailleBar -Percentage $f5Pct -Cells 8
 
         $f5Reset = ""
         if ($rlData.five_hour_reset) {
@@ -331,7 +327,7 @@ if ($rlData -and $rlData.five_hour_util) {
             $f5Reset = " ${GRAY}Resets $($resetDt.ToString('HH:mm'))$RESET"
         }
 
-        $fiveLine = "${GRAY}[5h]${RESET} ${f5Color}${f5Fill}${GRAY}${f5Empty}${RESET} ${f5Color}${f5Pct}%${RESET}${f5Reset}"
+        $fiveLine = "${GRAY}[5h]${RESET} ${f5Color}${f5Bar}${RESET} ${f5Color}${f5Pct}%${RESET}${f5Reset}"
     } catch {}
 }
 
@@ -339,11 +335,9 @@ $sevenDayLine = ""
 if ($rlData -and $rlData.seven_day_util) {
     try {
         $f7Pct   = [int]([double]$rlData.seven_day_util * 100)
-        $f7Color = if ($f7Pct -ge 80) { $RED } elseif ($f7Pct -ge 50) { $YELLOW } else { $GREEN }
+        $f7Color = Get-Gradient -Pct $f7Pct
 
-        $f7Count  = [math]::Min([math]::Floor($f7Pct / 10), 10)
-        $f7Fill   = ([char]0x25B0).ToString() * $f7Count
-        $f7Empty  = ([char]0x25B1).ToString() * (10 - $f7Count)
+        $f7Bar = New-BrailleBar -Percentage $f7Pct -Cells 8
 
         $f7Reset = ""
         if ($rlData.seven_day_reset) {
@@ -352,7 +346,7 @@ if ($rlData -and $rlData.seven_day_util) {
             $f7Reset = " ${GRAY}Resets $($resetDt.ToString('M/d HH:mm'))$RESET"
         }
 
-        $sevenDayLine = "${GRAY}[7d]${RESET} ${f7Color}${f7Fill}${GRAY}${f7Empty}${RESET} ${f7Color}${f7Pct}%${RESET}${f7Reset}"
+        $sevenDayLine = "${GRAY}[7d]${RESET} ${f7Color}${f7Bar}${RESET} ${f7Color}${f7Pct}%${RESET}${f7Reset}"
     } catch {}
 }
 
