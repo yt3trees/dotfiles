@@ -38,5 +38,6 @@
   },
   "language": "Japanese",
   "permissionMode": "auto",
-  "cleanupPeriodDays": 90
+  "cleanupPeriodDays": 90,
+  "showThinkingSummaries": true
 }
