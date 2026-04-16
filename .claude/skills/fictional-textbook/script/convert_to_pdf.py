@@ -74,6 +74,71 @@ a { color: #2b6cb0; text-decoration: none; }
 }
 """
 
+def write_pdf_with_reportlab(md_text, out_pdf):
+    """Fallback PDF generation when Edge headless print is unavailable."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+
+    pdfmetrics.registerFont(UnicodeCIDFont("HeiseiKakuGo-W5"))
+    pdfmetrics.registerFont(UnicodeCIDFont("HeiseiMin-W3"))
+
+    styles = getSampleStyleSheet()
+    base = ParagraphStyle(
+        "base", parent=styles["Normal"], fontName="HeiseiMin-W3",
+        fontSize=10.5, leading=17
+    )
+    h1 = ParagraphStyle(
+        "h1", parent=base, fontName="HeiseiKakuGo-W5",
+        fontSize=20, leading=28, spaceBefore=12, spaceAfter=10
+    )
+    h2 = ParagraphStyle(
+        "h2", parent=base, fontName="HeiseiKakuGo-W5",
+        fontSize=15, leading=22, spaceBefore=12, spaceAfter=8
+    )
+    h3 = ParagraphStyle(
+        "h3", parent=base, fontName="HeiseiKakuGo-W5",
+        fontSize=12, leading=18, spaceBefore=10, spaceAfter=6
+    )
+    h4 = ParagraphStyle(
+        "h4", parent=base, fontName="HeiseiKakuGo-W5",
+        fontSize=11, leading=17, spaceBefore=8, spaceAfter=5
+    )
+
+    story = []
+    for raw_line in md_text.splitlines():
+        line = raw_line.rstrip()
+        if not line:
+            story.append(Spacer(1, 4))
+            continue
+        if line.strip() == "---":
+            story.append(Spacer(1, 8))
+            continue
+
+        esc = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        if esc.startswith("# "):
+            story.append(Paragraph(esc[2:], h1))
+        elif esc.startswith("## "):
+            story.append(Paragraph(esc[3:], h2))
+        elif esc.startswith("### "):
+            story.append(Paragraph(esc[4:], h3))
+        elif esc.startswith("#### "):
+            story.append(Paragraph(esc[5:], h4))
+        elif esc.startswith("- "):
+            story.append(Paragraph("・" + esc[2:], base))
+        else:
+            story.append(Paragraph(esc, base))
+
+    doc = SimpleDocTemplate(
+        out_pdf, pagesize=A4,
+        leftMargin=16 * mm, rightMargin=16 * mm,
+        topMargin=14 * mm, bottomMargin=14 * mm
+    )
+    doc.build(story)
+
 def main():
     parser = argparse.ArgumentParser(description="Convert Markdown to PDF using Edge headless.")
     parser.add_argument("input", help="Path to the input Markdown file")
@@ -139,16 +204,26 @@ def main():
         "file:///" + tmp_html.replace("\\", "/"),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    
-    if result.returncode != 0:
-        print("Error during Edge execution:")
-        print("stdout:", result.stdout)
-        print("stderr:", result.stderr)
-        sys.exit(result.returncode)
 
     if os.path.exists(out_pdf):
         size = os.path.getsize(out_pdf)
-        print(f"\n完成: {out_pdf}  ({size:,} bytes)")
+        print(f"\n完成(Edge): {out_pdf}  ({size:,} bytes)")
+        return
+
+    print("Edge経由のPDF生成に失敗しました。ReportLabでフォールバックします。")
+    if result.returncode != 0:
+        print("Edge stdout:", result.stdout[:500] if result.stdout else "(empty)")
+        print("Edge stderr:", result.stderr[:500] if result.stderr else "(empty)")
+
+    try:
+        write_pdf_with_reportlab(md_text, out_pdf)
+    except ImportError:
+        print("Error: fallback requires 'reportlab'. Install with: pip install reportlab")
+        sys.exit(1)
+
+    if os.path.exists(out_pdf):
+        size = os.path.getsize(out_pdf)
+        print(f"\n完成(Fallback): {out_pdf}  ({size:,} bytes)")
     else:
         print("ERROR: PDFファイルが生成されませんでした")
         sys.exit(1)
