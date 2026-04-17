@@ -20,6 +20,17 @@ except ImportError:
 EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 
 CSS = """
+@page {
+    size: A4;
+    margin: 18mm 16mm;
+    /* ヘッダ・フッタを完全に無効化 */
+    @top-left { content: ""; }
+    @top-center { content: ""; }
+    @top-right { content: ""; }
+    @bottom-left { content: ""; }
+    @bottom-center { content: ""; }
+    @bottom-right { content: ""; }
+}
 body {
     font-family: "Meiryo", "Yu Gothic", "MS Gothic", sans-serif;
     font-size: 11pt;
@@ -67,10 +78,19 @@ th { background: #2c5282; color: white; padding: 8px 12px; }
 td { border: 1px solid #cbd5e0; padding: 7px 12px; }
 tr:nth-child(even) { background: #f7fafc; }
 a { color: #2b6cb0; text-decoration: none; }
+.mermaid {
+    background: #f7fafc;
+    border: 1px solid #cbd5e0;
+    border-radius: 6px;
+    padding: 16px;
+    margin: 1em 0;
+    text-align: center;
+    page-break-inside: avoid;
+}
 @media print {
     body { max-width: 100%; padding: 0 20px; }
     h1, h2, h3 { page-break-after: avoid; }
-    pre, blockquote { page-break-inside: avoid; }
+    pre, blockquote, .mermaid { page-break-inside: avoid; }
 }
 """
 
@@ -169,6 +189,15 @@ def main():
                 "break-on-newline", "code-friendly"]
     )
 
+    # mermaid コードブロックを div.mermaid に置換（Edge上でMermaid.jsがレンダリング）
+    import re
+    html_body = re.sub(
+        r'<pre><code class="language-mermaid">(.*?)</code></pre>',
+        lambda m: '<div class="mermaid">' + m.group(1).replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&') + '</div>',
+        html_body,
+        flags=re.DOTALL,
+    )
+
     full_html = f"""<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -176,6 +205,10 @@ def main():
 <style>
 {CSS}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+mermaid.initialize({{ startOnLoad: true, theme: 'default', flowchart: {{ htmlLabels: true, useMaxWidth: true }} }});
+</script>
 </head>
 <body>
 {html_body}
@@ -198,8 +231,10 @@ def main():
         "--headless",
         "--disable-gpu",
         "--run-all-compositor-stages-before-draw",
+        "--virtual-time-budget=10000",
         "--print-to-pdf=" + out_pdf,
         "--print-to-pdf-no-header",
+        "--no-pdf-header-footer",
         "--no-sandbox",
         "file:///" + tmp_html.replace("\\", "/"),
     ]
