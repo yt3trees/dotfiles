@@ -368,9 +368,40 @@ NG: 真の DX とは、文化の刷新である。
 3. 章ごとに区切り線 `---` を入れる
 4. 保存後は保存先の相対パスをユーザーに伝える
 5. **PDF化の要求があった場合**:
-   - `python script/convert_to_pdf.py [Markdownのパス]` を実行
+   - `python .claude/skills/fictional-textbook/script/convert_to_pdf.py [Markdownのパス]` を実行
    - 生成された PDF のパスもユーザーに伝える
    - ※ `markdown2` ライブラリが未インストールの場合はインストール
+6. **EPUB化の要求があった場合**:
+   - 同じスクリプトに `--epub` フラグを付けて実行: `python .claude/skills/fictional-textbook/script/convert_to_pdf.py --epub [Markdownのパス]`
+   - `ebook-convert` に直接 `.md` を渡すと Mermaid が画像化されず素のコードブロックとして残るため必ずスクリプト経由で変換する
+   - Calibre(`C:\Program Files\Calibre2\ebook-convert.exe`)が必要
+
+### 扉ページの記法上の注意(重要)
+
+PDF 変換時、スクリプトは「ファイル冒頭から最初の `---` まで」のテキストを扉メタデータとしてパースし、その範囲を丸ごと削除してからカバー画像オーバーレイを合成する。このため **表紙画像 `![表紙: ...](images/cover.png)` は最初の `---` より後ろ**(本文側)に配置すること。冒頭の `---` より前に置くと削除処理で img 自体が消え、PDF に表紙が出なくなる。
+
+また、カバーオーバーレイの検出正規表現は alt が **`表紙:`(コロン付き)で始まる img のみ**にマッチする。`![表紙](...)` のようにコロンなしだと発動しない。
+
+推奨の扉レイアウト:
+
+```markdown
+# [タイトル]
+
+## 【第N版】
+
+[サブタイトル]
+
+[著者名(絵文字1つ)]
+YYYY年MM月  第N版
+
+---
+
+![表紙: [タイトル]](images/cover.png)
+
+<!-- prompt: ... -->
+
+## 目次
+```
 
 ---
 
