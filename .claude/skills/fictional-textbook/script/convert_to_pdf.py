@@ -183,20 +183,61 @@ def main():
         md_text = f.read()
 
     print("HTML に変換中...")
+    import re
+    import base64
+    import urllib.request
+
     html_body = markdown2.markdown(
         md_text,
         extras=["fenced-code-blocks", "tables", "header-ids", "strike",
                 "break-on-newline", "code-friendly"]
     )
 
-    # mermaid コードブロックを div.mermaid に置換（Edge上でMermaid.jsがレンダリング）
-    import re
+    # mermaid コードブロックを div.mermaid に置換
     html_body = re.sub(
         r'<pre><code class="language-mermaid">(.*?)</code></pre>',
         lambda m: '<div class="mermaid">' + m.group(1).replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&') + '</div>',
         html_body,
         flags=re.DOTALL,
     )
+
+    # 画像を base64 データ URI に変換（相対パス → 絶対参照）
+    md_dir = os.path.dirname(md_file)
+    def embed_image(match):
+        src = match.group(1)
+        if src.startswith(('http', 'data:', 'file:')):
+            return match.group(0)
+        abs_path = os.path.normpath(os.path.join(md_dir, src))
+        if not os.path.exists(abs_path):
+            print(f"  [WARN] 画像が見つかりません: {abs_path}")
+            return match.group(0)
+        ext = os.path.splitext(abs_path)[1].lower().lstrip('.')
+        mime = {'jpg': 'jpeg', 'jpeg': 'jpeg', 'png': 'png', 'gif': 'gif', 'webp': 'webp'}.get(ext, 'png')
+        with open(abs_path, 'rb') as f:
+            data = base64.b64encode(f.read()).decode('ascii')
+        return f'src="data:image/{mime};base64,{data}"'
+
+    html_body = re.sub(r'src="([^"]*)"', embed_image, html_body)
+
+    # mermaid.js をローカルキャッシュ（CDN ではなく file:/// で読み込むことで headless でも確実に実行）
+    mermaid_cache = os.path.join(tempfile.gettempdir(), "mermaid.min.js")
+    if not os.path.exists(mermaid_cache):
+        print("mermaid.js をダウンロード中...")
+        try:
+            urllib.request.urlretrieve(
+                "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js",
+                mermaid_cache
+            )
+            print(f"  保存: {mermaid_cache}")
+        except Exception as e:
+            print(f"  [WARN] ダウンロード失敗: {e}")
+            mermaid_cache = None
+
+    if mermaid_cache and os.path.exists(mermaid_cache):
+        mermaid_js_uri = "file:///" + mermaid_cache.replace("\\", "/")
+        mermaid_script_tag = f'<script src="{mermaid_js_uri}"></script>'
+    else:
+        mermaid_script_tag = '<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>'
 
     full_html = f"""<!DOCTYPE html>
 <html lang="ja">
@@ -205,7 +246,7 @@ def main():
 <style>
 {CSS}
 </style>
-<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+{mermaid_script_tag}
 <script>
 mermaid.initialize({{ startOnLoad: true, theme: 'default', flowchart: {{ htmlLabels: true, useMaxWidth: true }} }});
 </script>
@@ -231,11 +272,12 @@ mermaid.initialize({{ startOnLoad: true, theme: 'default', flowchart: {{ htmlLab
         "--headless",
         "--disable-gpu",
         "--run-all-compositor-stages-before-draw",
-        "--virtual-time-budget=10000",
+        "--virtual-time-budget=30000",
         "--print-to-pdf=" + out_pdf,
         "--print-to-pdf-no-header",
         "--no-pdf-header-footer",
         "--no-sandbox",
+        "--allow-file-access-from-files",
         "file:///" + tmp_html.replace("\\", "/"),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
