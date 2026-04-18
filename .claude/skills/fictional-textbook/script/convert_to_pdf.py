@@ -18,6 +18,7 @@ except ImportError:
     sys.exit(1)
 
 EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+EBOOK_CONVERT = r"C:\Program Files\Calibre2\ebook-convert.exe"
 
 CSS = """
 @page {
@@ -171,9 +172,10 @@ def write_pdf_with_reportlab(md_text, out_pdf):
     doc.build(story)
 
 def main():
-    parser = argparse.ArgumentParser(description="Convert Markdown to PDF using Edge headless.")
+    parser = argparse.ArgumentParser(description="Convert Markdown to PDF or EPUB.")
     parser.add_argument("input", help="Path to the input Markdown file")
-    parser.add_argument("output", nargs="?", help="Path to the output PDF file (optional)")
+    parser.add_argument("output", nargs="?", help="Path to the output file (optional)")
+    parser.add_argument("--epub", action="store_true", help="Output EPUB instead of PDF")
     args = parser.parse_args()
 
     md_file = os.path.abspath(args.input)
@@ -181,13 +183,14 @@ def main():
         print(f"Error: Input file not found: {md_file}")
         sys.exit(1)
 
+    ext = ".epub" if args.epub else ".pdf"
     if args.output:
-        out_pdf = os.path.abspath(args.output)
+        out_file = os.path.abspath(args.output)
     else:
-        out_pdf = os.path.splitext(md_file)[0] + ".pdf"
+        out_file = os.path.splitext(md_file)[0] + ext
 
     # Ensure output directory exists
-    os.makedirs(os.path.dirname(out_pdf), exist_ok=True)
+    os.makedirs(os.path.dirname(out_file), exist_ok=True)
 
     print(f"Markdown を読み込み中: {md_file}")
     with open(md_file, encoding="utf-8") as f:
@@ -198,27 +201,29 @@ def main():
     import base64
     import urllib.request
 
-    # mermaid ブロックを npx mmdc で SVG に事前変換して置換
+    # mermaid ブロックを npx mmdc で PNG に変換して base64 埋め込み
     def prerender_mermaid(md):
+        counter = [0]
         def replace_mermaid(match):
             mmd_src = match.group(1)
-            tmp_mmd = os.path.join(tempfile.gettempdir(), "mermaid_tmp.mmd")
-            tmp_svg = os.path.join(tempfile.gettempdir(), "mermaid_tmp.svg")
+            counter[0] += 1
+            tmp_mmd = os.path.join(tempfile.gettempdir(), f"mermaid_{counter[0]}.mmd")
+            tmp_png = os.path.join(tempfile.gettempdir(), f"mermaid_{counter[0]}.png")
             with open(tmp_mmd, "w", encoding="utf-8") as f:
                 f.write(mmd_src)
             try:
                 npx_cmd = "npx.cmd" if os.name == "nt" else "npx"
                 r = subprocess.run(
-                    [npx_cmd, "--yes", "@mermaid-js/mermaid-cli", "-i", tmp_mmd, "-o", tmp_svg],
+                    [npx_cmd, "--yes", "@mermaid-js/mermaid-cli",
+                     "-i", tmp_mmd, "-o", tmp_png,
+                     "--scale", "3", "--width", "2400"],
                     capture_output=True, text=True, timeout=60
                 )
-                if r.returncode == 0 and os.path.exists(tmp_svg):
-                    with open(tmp_svg, "r", encoding="utf-8") as f:
-                        svg = f.read()
-                    svg = re.sub(r'<\?xml[^>]*\?>', '', svg).strip()
-                    svg = re.sub(r'<!DOCTYPE[^>]*>', '', svg).strip()
-                    print("  [Mermaid] SVG 変換成功")
-                    return f'\n<div class="mermaid-svg">{svg}</div>\n'
+                if r.returncode == 0 and os.path.exists(tmp_png):
+                    with open(tmp_png, "rb") as f:
+                        data = base64.b64encode(f.read()).decode("ascii")
+                    print(f"  [Mermaid] PNG 変換成功 ({counter[0]})")
+                    return f'\n<div class="mermaid-svg"><img src="data:image/png;base64,{data}" style="max-width:100%;height:auto;"></div>\n'
             except Exception as e:
                 print(f"  [WARN] Mermaid 変換失敗: {e}")
             return f'```mermaid\n{mmd_src}\n```'
@@ -303,6 +308,59 @@ mermaid.initialize({{ startOnLoad: true, theme: 'default', flowchart: {{ htmlLab
         f.write(full_html)
     print(f"HTML 一時ファイル: {tmp_html}")
 
+    if args.epub:
+        # EPUB 変換: calibre ebook-convert を使用
+        print("calibre で EPUB 変換中...")
+        if not os.path.exists(EBOOK_CONVERT):
+            print(f"Error: ebook-convert not found at {EBOOK_CONVERT}")
+            sys.exit(1)
+
+        # タイトル・著者をマークダウン冒頭から取得
+        title = "入門書"
+        author = "著者不明"
+        for line in md_text.splitlines():
+            line = line.strip()
+            if line.startswith("# ") and title == "入門書":
+                title = line[2:].strip()
+            if title != "入門書" and not line.startswith("#") and line and author == "著者不明":
+                author = re.sub(r'[📘📗📙📚✍️]', '', line).strip()
+                break
+
+        # 表紙画像パスを取得(先頭 img)
+        cover_match = re.search(r'<img[^>]+src="data:image/[^;]+;base64,([^"]+)"', full_html)
+        cover_path = None
+        if cover_match:
+            cover_path = os.path.join(tempfile.gettempdir(), "epub_cover.png")
+            with open(cover_path, "wb") as cf:
+                cf.write(base64.b64decode(cover_match.group(1)))
+
+        cmd = [
+            EBOOK_CONVERT, tmp_html, out_file,
+            "--title", title,
+            "--authors", author,
+            "--language", "ja",
+            "--chapter", "//h:h2",
+            "--level1-toc", "//h:h2",
+            "--level2-toc", "//h:h3",
+            "--extra-css", "body{font-family:serif;line-height:1.8;} img{max-width:100%;}",
+            "--no-default-epub-cover",
+        ]
+        if cover_path:
+            cmd += ["--cover", cover_path]
+
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                                errors="replace", timeout=120)
+        if os.path.exists(out_file):
+            size = os.path.getsize(out_file)
+            print(f"\n完成(EPUB): {out_file}  ({size:,} bytes)")
+        else:
+            print("ERROR: EPUBファイルが生成されませんでした")
+            print(result.stdout[-500:] if result.stdout else "")
+            print(result.stderr[-500:] if result.stderr else "")
+            sys.exit(1)
+        return
+
+    # PDF 変換: Edge headless
     print("Edge でPDF変換中... (しばらくかかります)")
     if not os.path.exists(EDGE):
         print(f"Error: Edge executable not found at {EDGE}")
@@ -314,7 +372,7 @@ mermaid.initialize({{ startOnLoad: true, theme: 'default', flowchart: {{ htmlLab
         "--disable-gpu",
         "--run-all-compositor-stages-before-draw",
         "--virtual-time-budget=30000",
-        "--print-to-pdf=" + out_pdf,
+        "--print-to-pdf=" + out_file,
         "--print-to-pdf-no-header",
         "--no-pdf-header-footer",
         "--no-sandbox",
@@ -323,9 +381,9 @@ mermaid.initialize({{ startOnLoad: true, theme: 'default', flowchart: {{ htmlLab
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
 
-    if os.path.exists(out_pdf):
-        size = os.path.getsize(out_pdf)
-        print(f"\n完成(Edge): {out_pdf}  ({size:,} bytes)")
+    if os.path.exists(out_file):
+        size = os.path.getsize(out_file)
+        print(f"\n完成(Edge): {out_file}  ({size:,} bytes)")
         return
 
     print("Edge経由のPDF生成に失敗しました。ReportLabでフォールバックします。")
@@ -334,14 +392,14 @@ mermaid.initialize({{ startOnLoad: true, theme: 'default', flowchart: {{ htmlLab
         print("Edge stderr:", result.stderr[:500] if result.stderr else "(empty)")
 
     try:
-        write_pdf_with_reportlab(md_text, out_pdf)
+        write_pdf_with_reportlab(md_text, out_file)
     except ImportError:
         print("Error: fallback requires 'reportlab'. Install with: pip install reportlab")
         sys.exit(1)
 
-    if os.path.exists(out_pdf):
-        size = os.path.getsize(out_pdf)
-        print(f"\n完成(Fallback): {out_pdf}  ({size:,} bytes)")
+    if os.path.exists(out_file):
+        size = os.path.getsize(out_file)
+        print(f"\n完成(Fallback): {out_file}  ({size:,} bytes)")
     else:
         print("ERROR: PDFファイルが生成されませんでした")
         sys.exit(1)
