@@ -207,8 +207,9 @@ def main():
             with open(tmp_mmd, "w", encoding="utf-8") as f:
                 f.write(mmd_src)
             try:
+                npx_cmd = "npx.cmd" if os.name == "nt" else "npx"
                 r = subprocess.run(
-                    ["npx", "--yes", "@mermaid-js/mermaid-cli", "-i", tmp_mmd, "-o", tmp_svg],
+                    [npx_cmd, "--yes", "@mermaid-js/mermaid-cli", "-i", tmp_mmd, "-o", tmp_svg],
                     capture_output=True, text=True, timeout=60
                 )
                 if r.returncode == 0 and os.path.exists(tmp_svg):
