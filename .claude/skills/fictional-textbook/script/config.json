@@ -1,0 +1,14 @@
+{
+    "ApiKey": "YOUR_API_KEY_HERE",
+    "Endpoint": "https://api.openai.com/v1/images/generations",
+    "Model": "gpt-image-1.5",
+    "DefaultSize": "1024x1024",
+    "DefaultQuality": "medium",
+    "ImageOutputDir": "./image",
+    "LogLevel": "INFO",
+    "Azure": {
+        "UseAzure": false,
+        "ApiKey": "YOUR_AZURE_API_KEY_HERE",
+        "Endpoint": "https://{resource-name}.openai.azure.com/openai/deployments/{deployment-id}/images/generations?api-version=2025-04-15-preview"
+    }
+}

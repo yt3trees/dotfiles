@@ -29,7 +29,7 @@ description: Generate a fictional, full-length introductory book (入門書) on 
 
 1. `Agent` ツールで `general-purpose`(または `Explore`)サブエージェントを 1回起動
 2. 8〜15 回の Web 検索 + 構造化された「素材ノート」の返却 を依頼
-3. 受け取った素材ノートを `/outputs/[トピック]_素材ノート.md` に保存
+3. 受け取った素材ノートを `outputs/[トピック]_素材ノート.md` に保存
 4. 執筆中は このファイルを参照(再検索を最小化)
 5. 素材ノートに無い固有名詞・数字が必要になった時のみ、追加で小規模リサーチ(2〜3検索)を別サブエージェントに依頼
 
@@ -114,7 +114,7 @@ description: Generate a fictional, full-length introductory book (入門書) on 
 
 1. 最初のターンで「扉 + 目次 + はじめに」を書く。
 2. 次のターンで「第1章の導入部と第1.1節」だけを全力で書く。
-3. 次のターンで「第1.2節と第1.3節」だけを全力で書き、`str_replace`等でファイルに追記する。
+3. 次のターンで「第1.2節と第1.3節」だけを全力で書き、`Edit` ツールでファイルに追記する。
 4. 以下、最終章まで1〜2節ずつ積み上げる。
 
 **1ターンあたり最大でも 1〜2節（合計 3,000〜5,000字程度）まで**。それ以上を狙うと途端に密度が落ちる。前の節の文脈を踏まえ、重複を避けて滑らかに繋ぐこと。
@@ -133,7 +133,7 @@ description: Generate a fictional, full-length introductory book (入門書) on 
 
 全章書き終わったら、後述のセルフチェック全項目に通るか確認。事実関係に不安があれば再度検索。
 
-最終ファイルを `/outputs/` に保存、`present_files` で提示。
+最終ファイルを `outputs/` に保存し、保存先の相対パスをユーザーに伝える。
 
 ---
 
@@ -153,7 +153,7 @@ YYYY年MM月  第N版
 ```
 
 - 版数は 2〜5 の範囲（第3版あたりが落ち着いている）
-- 著者名は造語 + 絵文字1つ（例: 「青木テンソル📐」「森ノ下カーネル🧪」）
+- 著者名は造語 + 絵文字1つ
 
 ### 章の構造
 
@@ -359,13 +359,13 @@ NG: 真の DX とは、文化の刷新である。
 
 ## 出力形式
 
-1. **デフォルト**: Markdown を `/outputs/[トピック名]入門_第N版.md` に保存
+1. **デフォルト**: Markdown を `outputs/[トピック名]入門_第N版.md` に保存
 2. 目次を扉の直後に配置
 3. 章ごとに区切り線 `---` を入れる
-4. 保存後は `present_files` で提示
+4. 保存後は保存先の相対パスをユーザーに伝える
 5. **PDF化の要求があった場合**:
    - `python script/convert_to_pdf.py [Markdownのパス]` を実行
-   - 生成された PDF も `present_files` で提示
+   - 生成された PDF のパスもユーザーに伝える
    - ※ `markdown2` ライブラリが未インストールの場合はインストール
 
 ---
@@ -376,11 +376,13 @@ NG: 真の DX とは、文化の刷新である。
 
 デフォルトでは挿絵を入れない。本文のみで完結させる。
 
-ユーザーから明示的に以下のような指示があった場合のみ、本セクションのルールで挿絵プレースホルダを埋め込む。
+ユーザーから明示的に以下のような指示があった場合のみ、本セクションのルールで挿絵を扱う。
 
 - 「挿絵を入れて」「イラストも」「画像も付けて」「図版を入れて」など
 
 判断に迷う指示なら、勝手に追加せず一度ユーザーに確認する。
+
+挿絵を入れると決まったら、Phase 2(章立て)に入る前に まず `script/check_config.ps1` を実行して実生成モードか fallback モード(プレースホルダのみ)かを確定させる。モードが決まらないと style 選択や命名規則の合意も進められないため、ここで分岐する。
 
 ### 図解と挿絵の区別(重要)
 
@@ -421,18 +423,20 @@ NG: 真の DX とは、文化の刷新である。
 [Mood: 時間帯・光・空気感]
 [固定 style 句]
 [Negative: no text, no logos, no recognizable real people, no watermark]
-[Aspect: 16:9 (章扉) / 4:3 (本文挿絵) / 2:3 (表紙)]
+[Size: 1536x1024 (章扉・横長) / 1024x1024 (本文挿絵・スクエア) / 1024x1536 (表紙・縦長)]
 ```
+
+`gpt-image-1.5` がサポートするのは上記3サイズのみ。16:9 / 4:3 / 2:3 のような一般的なアスペクト比表記は使わない(スクリプトが拒否するため)。
 
 ### 良い例
 
 章扉(第1章「生成AIブームの正体」、style B):
 
-> A crowded train platform in Tokyo at morning rush hour, faceless commuters in business suits walking past, one figure in the foreground stopped and looking up at a blank advertisement panel symbolizing a hollow promise. Slight motion blur on commuters. No text, no logos, no recognizable real people. Soft watercolor wash with delicate ink line work, muted earth tones with one accent color (deep blue), editorial book illustration. Aspect 16:9.
+> A crowded train platform in Tokyo at morning rush hour, faceless commuters in business suits walking past, one figure in the foreground stopped and looking up at a blank advertisement panel symbolizing a hollow promise. Slight motion blur on commuters. No text, no logos, no recognizable real people. Soft watercolor wash with delicate ink line work, muted earth tones with one accent color (deep blue), editorial book illustration. Size 1536x1024.
 
 比喩の視覚化(「PoC の罠」、style B):
 
-> A spiral staircase viewed from above that loops back to its own starting point, a single small figure climbing endlessly. Abstract architectural sketch feel. No text, no logos. Soft watercolor wash with delicate ink line work, muted earth tones with one accent color (deep blue), editorial book illustration. Aspect 4:3.
+> A spiral staircase viewed from above that loops back to its own starting point, a single small figure climbing endlessly. Abstract architectural sketch feel. No text, no logos. Soft watercolor wash with delicate ink line work, muted earth tones with one accent color (deep blue), editorial book illustration. Size 1024x1024.
 
 ### 禁止事項
 
@@ -442,9 +446,46 @@ NG: 真の DX とは、文化の刷新である。
 - 章ごとにスタイルを変える → 統一感が崩れる
 - 画像で技術的事実を伝える(LLM の内部構造など) → 誤情報の温床。図解(Mermaid 等)で書く
 
+### 画像の実生成(config.json が設定済みの場合)
+
+`script/config.json` が実キーに差し替わっている場合は、プレースホルダで止めずに `script/generate_image.ps1` を呼び出して PNG を実生成する。プレースホルダ方式はキーが未設定のときの fallback。
+
+#### 設定チェックの手順(判定スクリプトを使う)
+
+手動で `config.json` の中身を読んで判定しない。必ず `script/check_config.ps1` を呼び出し、その出力で分岐する。
+
+```
+powershell -ExecutionPolicy Bypass -File "script/check_config.ps1"
+```
+
+出力と exit code の対応:
+
+- `CONFIGURED: OpenAI` または `CONFIGURED: Azure`(exit 0) → 実生成モードへ進む
+- `NOT_CONFIGURED: <理由>`(exit 1) → プレースホルダのみで止める(キー未設定)
+- `NOT_CONFIGURED: <理由>`(exit 2) → config.json 欠損や JSON パース失敗。ユーザーに通知して指示を仰ぐ
+
+判定スクリプト自体はキーを漏らさない(Configured か NotConfigured かだけを返す)。キー本文を読みたくなっても、本スキルから直接 `config.json` を cat しない。
+
+#### 実行コマンド
+
+挿絵1枚ごとに PowerShell から以下を実行する(Windows 環境・bash シェルから呼ぶ場合)。`-OutputPath` で最終ファイル名まで直接指定するため、生成後のリネームや移動は不要。
+
+```
+powershell -ExecutionPolicy Bypass -File "script/generate_image.ps1" -Prompt "<英語プロンプト(固定 style 句を含む)>" -Size "<1024x1024|1024x1536|1536x1024>" -OutputPath "outputs/images/ch01_opener.png"
+```
+
+- `-Size` は 1024x1024 / 1024x1536 / 1536x1024 の3種のみ
+- `-OutputPath` は Markdown から参照するパス(`![挿絵](images/ch01_opener.png)` なら `outputs/images/ch01_opener.png`)をそのまま渡す。親ディレクトリはスクリプトが自動作成
+- ファイル名は `images/ch[章番号]_[用途].png` 形式で統一(例: `cover.png`, `ch01_opener.png`, `ch03_column.png`)
+- プロンプトを埋め込んだ HTML コメントは本文側に残しておく(再生成時の履歴として有用)
+
+#### 失敗したときの扱い
+
+`generate_image.ps1` が API エラーや認証エラーで失敗した場合、そのコマの挿絵だけ プレースホルダ方式に戻す(全体の執筆は止めない)。ユーザーには「N枚中M枚は生成成功、残りはプロンプト埋め込みのみ」と明示する。
+
 ### Markdown 埋め込み形式
 
-挿絵を入れる位置に、以下の形式でプレースホルダとプロンプトをセットで埋め込む。画像ファイル本体は生成しない(プロンプトの埋め込みまでが本スキルの仕事)。
+挿絵を入れる位置に、以下の形式でプレースホルダとプロンプトをセットで埋め込む。config.json が未設定なら画像ファイル本体は生成しない(プロンプトの埋め込みまでが本スキルの仕事)。設定済みなら上記「画像の実生成」手順で PNG を作り、`![挿絵: ...](images/...)` のリンク先に配置する。
 
 ```markdown
 ![挿絵: 早朝のオフィスでモニターに向かう30代の会社員](images/ch01_opener.png)
@@ -454,8 +495,8 @@ prompt: A quiet Japanese office at dawn, a salaryman in his mid-30s
 viewing multiple monitors with scrolling code, soft ambient light from
 the window, no text, no logos, no recognizable real people. Soft
 watercolor wash with delicate ink line work, muted earth tones with
-one accent color (deep blue), editorial book illustration. Aspect 16:9.
-aspect: 16:9
+one accent color (deep blue), editorial book illustration. Size 1536x1024.
+size: 1536x1024
 position: 第1章扉
 -->
 ```
@@ -480,7 +521,7 @@ position: 第1章扉
 
 **取材と設計**
 - [ ] 事前に合意した「再帰的に分割した目次構造」に従っているか？
-- [ ] リサーチ専用サブエージェントに素材ノートを作らせ、`/outputs/` に保存したか?(該当する話題なら)
+- [ ] リサーチ専用サブエージェントに素材ノートを作らせ、`outputs/` に保存したか?(該当する話題なら)
 - [ ] メインエージェントで直接 web_search を多用していないか?(コンテキスト圧迫のNG パターン)
 - [ ] 素材ノートの固有名詞が本文に登場しているか? 素材ノートに無い数字・人名を推測で書いていないか?
 - [ ] 扉に「第N版・サブタイトル・固有名詞・著者名・日付」が揃っているか？
@@ -500,7 +541,7 @@ position: 第1章扉
 ### 失敗2: 章数を増やして総字数を稼ぐ
 12章で合意したのに18章まで膨らむパターン。各章が薄くなる典型。**章数は厳守**。1章を厚くして稼ぐ。
 
-### 失敗3: 一気に書こうとしてサボる（追加ルール）
+### 失敗3: 一気に書こうとしてサボる
 LLMの特性上、一度に数万文字を要求すると必ず内容がスカスカになる。章単位での執筆をやめ、**必ず「節（Section）」単位で1ターンを終わらせ、反復させること。**
 
 ### 失敗4: 節の中身が4文で終わる
