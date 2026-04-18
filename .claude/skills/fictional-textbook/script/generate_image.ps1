@@ -119,7 +119,7 @@ try {
     # Common parameters
     $targetSize = if (-not [string]::IsNullOrWhiteSpace($Size)) { $Size } else { $config.DefaultSize }
     if (-not [string]::IsNullOrWhiteSpace($targetSize)) { $bodyObj["size"] = $targetSize }
-    $bodyObj["response_format"] = "b64_json"
+    # gpt-image-1 series does not accept response_format; omit it
 
     if ($apiKey -eq "YOUR_API_KEY_HERE" -or $apiKey -eq "YOUR_AZURE_API_KEY_HERE" -or [string]::IsNullOrWhiteSpace($apiKey)) {
         throw "API Key is not configured correctly in config.json."
