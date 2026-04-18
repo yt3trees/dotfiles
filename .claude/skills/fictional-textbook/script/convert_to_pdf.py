@@ -80,6 +80,18 @@ td { border: 1px solid #cbd5e0; padding: 7px 12px; }
 tr:nth-child(even) { background: #f7fafc; }
 a { color: #2b6cb0; text-decoration: none; }
 img { max-width: 100%; max-height: 60vh; height: auto; display: block; margin: 1em auto; object-fit: contain; }
+.cover-wrapper { position: relative; display: block; width: 100%; margin: 0; }
+.cover-wrapper img { max-height: none; width: 100%; margin: 0; }
+.cover-text {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: linear-gradient(transparent, rgba(0,0,0,0.82));
+    color: #fff; padding: 60px 36px 36px; text-align: left;
+}
+.cover-version { font-size: 0.95em; letter-spacing: 0.08em; opacity: 0.85; margin-bottom: 6px; }
+.cover-title { font-size: 2.4em; font-weight: bold; line-height: 1.2; margin-bottom: 10px; text-shadow: 0 2px 6px rgba(0,0,0,0.5); }
+.cover-subtitle { font-size: 1.0em; opacity: 0.9; margin-bottom: 18px; }
+.cover-author { font-size: 1.1em; font-weight: bold; }
+.cover-date { font-size: 0.85em; opacity: 0.75; margin-top: 4px; }
 .mermaid {
     background: #f7fafc;
     border: 1px solid #cbd5e0;
@@ -201,6 +213,29 @@ def main():
     import base64
     import urllib.request
 
+    # 表紙メタデータをマークダウン冒頭から抽出
+    def parse_cover_meta(text):
+        lines = [l.strip() for l in text.splitlines()]
+        meta = {"title": "", "version": "", "subtitle": "", "author": "", "date": ""}
+        for i, line in enumerate(lines[:20]):
+            if line.startswith("# ") and not meta["title"]:
+                meta["title"] = line[2:]
+            elif line.startswith("## ") and not meta["version"]:
+                meta["version"] = line[3:]
+            elif line and not line.startswith("#") and not line.startswith("---") and not line.startswith("!"):
+                if not meta["subtitle"]:
+                    meta["subtitle"] = line
+                elif not meta["author"]:
+                    meta["author"] = re.sub(r'[📘📗📙📚✍️]', '', line).strip()
+                elif not meta["date"]:
+                    meta["date"] = line
+        return meta
+
+    cover_meta = parse_cover_meta(md_text)
+
+    # 表紙テキストブロック(冒頭〜最初の --- まで)を削除: カバー画像オーバーレイに情報を載せるため不要
+    md_text = re.sub(r'\A.*?^---\s*\n', '', md_text, count=1, flags=re.DOTALL | re.MULTILINE)
+
     # mermaid ブロックを npx mmdc で PNG に変換して base64 埋め込み
     def prerender_mermaid(md):
         counter = [0]
@@ -265,6 +300,27 @@ def main():
 
     html_body = re.sub(r'src="([^"]*)"', embed_image, html_body)
 
+    # 表紙画像 (alt が "表紙:" で始まる最初の img) をオーバーレイラッパーに置換
+    def make_cover_overlay(m):
+        img_tag = m.group(0)
+        t = cover_meta
+        overlay_html = f"""<div class="cover-wrapper">
+{img_tag}
+<div class="cover-text">
+  <div class="cover-version">{t['version']}</div>
+  <div class="cover-title">{t['title']}</div>
+  <div class="cover-subtitle">{t['subtitle']}</div>
+  <div class="cover-author">{t['author']}</div>
+  <div class="cover-date">{t['date']}</div>
+</div>
+</div>"""
+        return overlay_html
+
+    html_body = re.sub(
+        r'<img[^>]+alt="表紙:[^"]*"[^>]*>',
+        make_cover_overlay, html_body, count=1
+    )
+
     # mermaid.js をローカルキャッシュ（CDN ではなく file:/// で読み込むことで headless でも確実に実行）
     mermaid_cache = os.path.join(tempfile.gettempdir(), "mermaid.min.js")
     if not os.path.exists(mermaid_cache):
@@ -302,10 +358,18 @@ mermaid.initialize({{ startOnLoad: true, theme: 'default', flowchart: {{ htmlLab
 </body>
 </html>"""
 
+    # EPUB 用: body から cover-wrapper ブロックを除去(calibre が別途カバーページを生成するため)
+    epub_html = full_html
+    if args.epub:
+        epub_html = re.sub(
+            r'<div class="cover-wrapper">.*?</div>\s*',
+            '', epub_html, count=1, flags=re.DOTALL
+        )
+
     # 一時 HTML ファイルに書き出し
     tmp_html = os.path.join(tempfile.gettempdir(), "fictional_book_tmp.html")
     with open(tmp_html, "w", encoding="utf-8") as f:
-        f.write(full_html)
+        f.write(epub_html if args.epub else full_html)
     print(f"HTML 一時ファイル: {tmp_html}")
 
     if args.epub:
@@ -326,13 +390,89 @@ mermaid.initialize({{ startOnLoad: true, theme: 'default', flowchart: {{ htmlLab
                 author = re.sub(r'[📘📗📙📚✍️]', '', line).strip()
                 break
 
-        # 表紙画像パスを取得(先頭 img)
+        # 表紙画像にテキストをPillowで合成してEPUBカバーを作成
         cover_match = re.search(r'<img[^>]+src="data:image/[^;]+;base64,([^"]+)"', full_html)
         cover_path = None
         if cover_match:
+            raw_cover = os.path.join(tempfile.gettempdir(), "epub_cover_raw.png")
             cover_path = os.path.join(tempfile.gettempdir(), "epub_cover.png")
-            with open(cover_path, "wb") as cf:
+            with open(raw_cover, "wb") as cf:
                 cf.write(base64.b64decode(cover_match.group(1)))
+            try:
+                from PIL import Image, ImageDraw, ImageFont
+                img = Image.open(raw_cover).convert("RGBA")
+                w, h = img.size
+
+                # 下部グラデーションオーバーレイ
+                overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+                draw_ov = ImageDraw.Draw(overlay)
+                grad_h = int(h * 0.55)
+                for y in range(grad_h):
+                    alpha = int(200 * (y / grad_h) ** 1.5)
+                    draw_ov.line([(0, h - grad_h + y), (w, h - grad_h + y)],
+                                 fill=(0, 0, 0, alpha))
+                img = Image.alpha_composite(img, overlay).convert("RGB")
+                draw = ImageDraw.Draw(img)
+                font_path = r"C:\Windows\Fonts\YuGothB.ttc"
+                font_reg_path = r"C:\Windows\Fonts\YuGothM.ttc"
+                def load_font(size, bold=True):
+                    try:
+                        return ImageFont.truetype(font_path if bold else font_reg_path,
+                                                  size, index=0)
+                    except:
+                        return ImageFont.load_default()
+                margin = int(w * 0.07)
+                # 90%安全マージンで右端へのはみ出しを防止
+                max_text_w = int((w - margin * 2) * 0.90)
+
+                def draw_wrapped(drw, text, x, y_start, font, fill):
+                    """1文字ずつ測定して折り返す。次のy座標を返す。"""
+                    lines, cur = [], ""
+                    for ch in text:
+                        test = cur + ch
+                        bbox = drw.textbbox((0, 0), test, font=font)
+                        if bbox[2] > max_text_w and cur:
+                            lines.append(cur)
+                            cur = ch
+                        else:
+                            cur = test
+                    if cur:
+                        lines.append(cur)
+                    lh = drw.textbbox((0, 0), "あ", font=font)[3] + int(w * 0.008)
+                    for line in lines:
+                        drw.text((x, y_start), line, font=font, fill=fill)
+                        y_start += lh
+                    return y_start + int(w * 0.01)
+
+                y_pos = int(h * 0.52)
+                # バージョン
+                f_ver = load_font(int(w * 0.038), bold=False)
+                y_pos = draw_wrapped(draw, cover_meta["version"], margin, y_pos, f_ver,
+                                     (220, 220, 220))
+                y_pos += int(w * 0.01)
+                # タイトル
+                f_title = load_font(int(w * 0.072))
+                y_pos = draw_wrapped(draw, cover_meta["title"], margin, y_pos, f_title,
+                                     (255, 255, 255))
+                y_pos += int(w * 0.015)
+                # サブタイトル
+                f_sub = load_font(int(w * 0.034), bold=False)
+                y_pos = draw_wrapped(draw, cover_meta["subtitle"], margin, y_pos, f_sub,
+                                     (200, 220, 255))
+                y_pos += int(w * 0.01)
+                # 著者
+                f_auth = load_font(int(w * 0.042))
+                y_pos = draw_wrapped(draw, cover_meta["author"], margin, y_pos, f_auth,
+                                     (240, 240, 240))
+                # 日付
+                f_date = load_font(int(w * 0.030), bold=False)
+                draw.text((margin, y_pos), cover_meta["date"], font=f_date,
+                          fill=(180, 180, 180))
+                img.save(cover_path)
+                print("  表紙テキスト合成完了")
+            except Exception as e:
+                print(f"  [WARN] 表紙テキスト合成失敗: {e}")
+                cover_path = raw_cover
 
         cmd = [
             EBOOK_CONVERT, tmp_html, out_file,
@@ -344,6 +484,8 @@ mermaid.initialize({{ startOnLoad: true, theme: 'default', flowchart: {{ htmlLab
             "--level2-toc", "//h:h3",
             "--extra-css", "body{font-family:serif;line-height:1.8;} img{max-width:100%;}",
             "--no-default-epub-cover",
+            "--no-svg-cover",
+            "--output-profile", "tablet",
         ]
         if cover_path:
             cmd += ["--cover", cover_path]
