@@ -148,12 +148,12 @@ description: Generate a fictional, full-length introductory book (入門書) on 
 
 [サブタイトル: 固有名詞 1〜3個 + 切り口1フレーズ]
 
-[架空の著者名（絵文字1つ）]
+[著者名（絵文字1つ）]
 YYYY年MM月  第N版
 ```
 
 - 版数は 2〜5 の範囲（第3版あたりが落ち着いている）
-- 著者名は造語 + 絵文字1つ
+- 著者名はClaude or Codex or Gemini or other + 絵文字1つ
 
 ### 章の構造
 
