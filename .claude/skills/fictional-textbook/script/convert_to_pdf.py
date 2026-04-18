@@ -78,6 +78,7 @@ th { background: #2c5282; color: white; padding: 8px 12px; }
 td { border: 1px solid #cbd5e0; padding: 7px 12px; }
 tr:nth-child(even) { background: #f7fafc; }
 a { color: #2b6cb0; text-decoration: none; }
+img { max-width: 100%; height: auto; display: block; margin: 1em auto; }
 .mermaid {
     background: #f7fafc;
     border: 1px solid #cbd5e0;
@@ -86,6 +87,16 @@ a { color: #2b6cb0; text-decoration: none; }
     margin: 1em 0;
     text-align: center;
     page-break-inside: avoid;
+}
+.mermaid-svg {
+    margin: 1em auto;
+    text-align: center;
+    page-break-inside: avoid;
+    overflow-x: auto;
+}
+.mermaid-svg svg {
+    max-width: 100%;
+    height: auto;
 }
 @media print {
     body { max-width: 100%; padding: 0 20px; }
@@ -186,6 +197,35 @@ def main():
     import re
     import base64
     import urllib.request
+
+    # mermaid ブロックを npx mmdc で SVG に事前変換して置換
+    def prerender_mermaid(md):
+        def replace_mermaid(match):
+            mmd_src = match.group(1)
+            tmp_mmd = os.path.join(tempfile.gettempdir(), "mermaid_tmp.mmd")
+            tmp_svg = os.path.join(tempfile.gettempdir(), "mermaid_tmp.svg")
+            with open(tmp_mmd, "w", encoding="utf-8") as f:
+                f.write(mmd_src)
+            try:
+                r = subprocess.run(
+                    ["npx", "--yes", "@mermaid-js/mermaid-cli", "-i", tmp_mmd, "-o", tmp_svg],
+                    capture_output=True, text=True, timeout=60
+                )
+                if r.returncode == 0 and os.path.exists(tmp_svg):
+                    with open(tmp_svg, "r", encoding="utf-8") as f:
+                        svg = f.read()
+                    svg = re.sub(r'<\?xml[^>]*\?>', '', svg).strip()
+                    svg = re.sub(r'<!DOCTYPE[^>]*>', '', svg).strip()
+                    print("  [Mermaid] SVG 変換成功")
+                    return f'\n<div class="mermaid-svg">{svg}</div>\n'
+            except Exception as e:
+                print(f"  [WARN] Mermaid 変換失敗: {e}")
+            return f'```mermaid\n{mmd_src}\n```'
+
+        return re.sub(r'```mermaid\n(.*?)\n```', replace_mermaid, md, flags=re.DOTALL)
+
+    print("Mermaid ブロックを事前レンダリング中...")
+    md_text = prerender_mermaid(md_text)
 
     html_body = markdown2.markdown(
         md_text,
