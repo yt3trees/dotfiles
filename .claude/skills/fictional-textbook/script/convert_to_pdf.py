@@ -78,7 +78,7 @@ th { background: #2c5282; color: white; padding: 8px 12px; }
 td { border: 1px solid #cbd5e0; padding: 7px 12px; }
 tr:nth-child(even) { background: #f7fafc; }
 a { color: #2b6cb0; text-decoration: none; }
-img { max-width: 100%; height: auto; display: block; margin: 1em auto; }
+img { max-width: 100%; max-height: 60vh; height: auto; display: block; margin: 1em auto; object-fit: contain; }
 .mermaid {
     background: #f7fafc;
     border: 1px solid #cbd5e0;
